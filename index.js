@@ -1,6 +1,8 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const sql = require('mssql');
+const xlsx = require('xlsx');
+const multer = require('multer');
 
 const app = express();
 const port = 3000;
@@ -14,7 +16,7 @@ const config = {
   server: '66.94.101.248',
   database: 'db_agtest',
   options: {
-    encrypt: false, //
+    encrypt: false,
   },
 };
 
@@ -30,25 +32,62 @@ app.use((req, res, next) => {
   next();
 });
 
+// File upload middleware
+const upload = multer({ dest: 'uploads/' });
 // crear una persona
-app.post('/personas', (req, res) => {
-  const { dni, nombre, apellido, fecha_nacimiento, telefono } = req.body;
+// app.post('/personas', (req, res) => {
+//   const { dni, nombre, apellido, fecha_nacimiento, telefono } = req.body;
+//   const insertQuery = `INSERT INTO personas (dni, nombre, apellido, fecha_nacimiento, telefono)
+//                        VALUES (@dni, @nombre, @apellido, @fecha_nacimiento, @telefono)`;
+
+//   req.pool.connect().then((pool) => {
+//     return pool.request()
+//       .input('dni', sql.VarChar, dni)
+//       .input('nombre', sql.VarChar, nombre)
+//       .input('apellido', sql.VarChar, apellido)
+//       .input('fecha_nacimiento', sql.VarChar, fecha_nacimiento)
+//       .input('telefono', sql.VarChar, telefono)
+//       .query(insertQuery);
+//   }).then(() => {
+//     res.json({ message: 'Persona creada exitosamente.' });
+//   }).catch((err) => {
+//     console.error(err);
+//     res.status(500).json({ error: 'Error al crear persona.' });
+//   });
+// });
+
+app.post('/personas/excel', upload.single('file'), (req, res) => {
+  const file = req.file;
+  if (!file) {
+    res.status(400).json({ error: 'No file uploaded' });
+    return;
+  }
+
+  const filePath = file.path;
+  const workbook = xlsx.readFile(filePath);
+  const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+  const data = xlsx.utils.sheet_to_json(worksheet);
+
   const insertQuery = `INSERT INTO personas (dni, nombre, apellido, fecha_nacimiento, telefono)
                        VALUES (@dni, @nombre, @apellido, @fecha_nacimiento, @telefono)`;
 
   req.pool.connect().then((pool) => {
-    return pool.request()
-      .input('dni', sql.VarChar, dni)
-      .input('nombre', sql.VarChar, nombre)
-      .input('apellido', sql.VarChar, apellido)
-      .input('fecha_nacimiento', sql.VarChar, fecha_nacimiento)
-      .input('telefono', sql.VarChar, telefono)
-      .query(insertQuery);
+    const promises = data.map((record) => {
+      return pool.request()
+        .input('dni', sql.VarChar, record.dni)
+        .input('nombre', sql.VarChar, record.nombre)
+        .input('apellido', sql.VarChar, record.apellido)
+        .input('fecha_nacimiento', sql.VarChar, record.fecha_nacimiento)
+        .input('telefono', sql.VarChar, record.telefono)
+        .query(insertQuery);
+    });
+
+    return Promise.all(promises);
   }).then(() => {
-    res.json({ message: 'Persona creada exitosamente.' });
+    res.json({ message: 'Personas creadas exitosamente desde Excel' });
   }).catch((err) => {
     console.error(err);
-    res.status(500).json({ error: 'Error al crear persona.' });
+    res.status(500).json({ error: 'Error al crear las personas desde Excel' });
   });
 });
 
